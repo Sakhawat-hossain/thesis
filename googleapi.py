@@ -16,7 +16,7 @@ import time
 
 #open file
 # Requires API key 
-gmaps = googlemaps.Client(key='AIzaSyBhNI9G0SpV73nZ2KtsjxOFV6TTG06AFuk') 
+gmaps = googlemaps.Client(key='') 
 
 # Requires cities name 
 location = ['Azimpur', 'Gabtoli', 'Uttara Sector 1', 'Mohakhali', 'Badda']
