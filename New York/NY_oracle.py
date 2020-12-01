@@ -17,7 +17,7 @@ from sklearn.preprocessing import PolynomialFeatures
 # To plot pretty figures
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-mpl.rc('axes', labelsize=13)
+mpl.rc('axes', labelsize=14)
 mpl.rc('xtick', labelsize=12)
 mpl.rc('ytick', labelsize=12)
 
@@ -26,7 +26,7 @@ import warnings
 warnings.filterwarnings(action="ignore", message="^internal gelsd")
 
 # -------------------- Function section ------------------------- #
-INFINITY = 9999
+INFINITY = 99999
 
 def prepare_data(data, sl, dl, day):
     data = data[(data.Starting_locationID==sl) & (data.Dropping_locationID==dl) & (data.Weekday==day)]
@@ -34,6 +34,27 @@ def prepare_data(data, sl, dl, day):
     return data
 
 # ---------------------- calculation duration --------------------------#
+def calculate_single_dur(data, source, destination, dt):
+    X_ = np.array([[0.0]])
+    X_[0][0] = dt.hour*60 + dt.minute
+    day = dt.strftime("%A")
+    
+    y_pred = 0.0
+    pdata = prepare_data(data, source, destination, day)
+    if pdata.empty:
+        return INFINITY
+    else:
+        deg = pdata.Degree.values[0]
+        X_val = PolynomialFeatures(degree=deg, include_bias=False).fit_transform(X_)
+        
+        k = 1
+        y_pred = pdata.Intercept
+        while k<=deg:
+            y_pred = y_pred + X_val[0][k-1]*pdata['Power_'+str(k)]
+            k = k+1
+        if y_pred.values[0] < 0:
+            return 0
+    return y_pred.values[0]
 # using Adjacency Matrix
 def calculate_duration_AM(data, num_location, dt):
     X_ = np.array([[0.0]])
@@ -114,11 +135,13 @@ def calculate_duration_AL(data, num_location, dt):
 def traffic_pattern(ldata, idata, sl, dl):
     weekdays = ['Saturday','Sunday','Monday','Tuesday','Wednesday','Thursday','Friday']
     colors = ['b','r','g','grey','m','y','k']
+    #fig = plt.figure(figsize = (8, 5))
+    
     i = 0
     while i<7: # for days
         # model information of respected pair of locations and weekday
         data = prepare_data(ldata, sl, dl, weekdays[i])
-        
+        #print(data.values)
         if data.empty:
             i += 1
             continue
@@ -280,20 +303,29 @@ def lcp_DA_AL(data, source, destination, num_location, dt):
             break
     
     print('Route:', route)
+    return parent, route, duration
 # ----------------------------- DA End ---------------------------------#
 # --------------------- Least congested path end -----------------------#
 
-# --------------------- Least congested time ----------------------- #
+# ---------------------- Least congested time ----------------------- #
+#A date is given, A range is given
+#Calculate duration in every interval of 10 minutes
+#should remember -> input arrival datetime, output start datetime
 def least_congested_time(loaded_data, source, destination, time_range, dt):
     day = dt.strftime("%A")
+    print(day)
     data = prepare_data(loaded_data, source, destination, day)
     
     start_min = time_range[0][0]*60 + time_range[0][1]
     end_min = time_range[1][0]*60 + time_range[1][1]
-    print(end_min)
+    time_inc = 20#10
+    
+    #print(end_min)
+    xminute = []
+    xlabel = []
     duration = []
     expt_min = 0
-    expt_dur = 999999
+    expt_dur = INFINITY
     X_ = np.array([[0.0]])
     
     while start_min <= end_min:
@@ -310,16 +342,129 @@ def least_congested_time(loaded_data, source, destination, time_range, dt):
             while k<=deg:
                 y_pred = y_pred + X_val[0][k-1]*data['Power_'+str(k)]
                 k = k+1
-            duration.append([start_min,y_pred.values[0]])
+            duration.append(y_pred.values[0])
+            xminute.append(start_min)
+            #hmstr = str(int(start_min/60)) + ':' + str(start_min%60)
+            #xlabel.append(hmstr)
+            
             if y_pred.values[0] < expt_dur:
                 expt_min = start_min
                 expt_dur = y_pred.values[0]
-        start_min += 10
+        start_min += time_inc
+    #durationArr.append([start_min,y_pred.values[0]])
 
     print('Least Congested Time (',time_range[0][0],':',time_range[0][1],'-',time_range[1][0],':',time_range[1][1],'):')
     print('At ', int(expt_min/60), ':', str(expt_min%60), ', Duration: ', str(expt_dur), ' minutes')
 
-# --------------------- Least congested time end ----------------------- #    
+    #fig = plt.figure(figsize = (8, 5))
+    plt.bar(xminute, duration, width=12)
+    plt.xlabel('Pickup time')
+    plt.ylabel('Duration (minutes)')
+    arr = np.arange(xminute[0], xminute[len(xminute)-1]+1, 20)
+    for i in arr:
+        hmstr = str(int(i/60)) + ':' + str(i%60)
+        xlabel.append(hmstr)
+    plt.xticks(arr, xlabel, rotation='vertical')
+    #plt.legend()
+    plt.show()
+# ---------------------- When range default ---------------------------#
+#A date is given
+#A range is default from 6 to 23.59
+#Morning 6 - 10, Noon 10 - 14, Afternoon 14 - 18, Evening 18 - 22, night - rest
+#Calculate duration in every interval of 30 minutes
+  
+def lct_default(loaded_data, source, destination, dt):
+    day = dt.strftime("%A")
+    #print(day)
+    data = prepare_data(loaded_data, source, destination, day)
+    if data.empty:
+        print('No data availabe')
+        return
+    deg = data.Degree.values[0]
+    
+    time_range = [6*60, 10*60, 14*60, 18*60, 22*60]
+    time_inc = 20
+    
+    #print(end_min)
+    duration = []
+    xlabel = []
+    expt_val = []
+    X_ = np.array([[0.0]])
+    
+    for i in range(4):
+        start_min = time_range[i]
+        end_min = time_range[i+1]
+        expt_min = 0
+        expt_dur = INFINITY
+        xminute = []
+        yvalue = []
+        while start_min <= end_min:
+            X_[0][0] = start_min
+            X_val = PolynomialFeatures(degree=deg, include_bias=False).fit_transform(X_)
+            
+            k = 1
+            y_pred = data.Intercept
+            while k<=deg:
+                y_pred = y_pred + X_val[0][k-1]*data['Power_'+str(k)]
+                k = k+1
+            duration.append([start_min,y_pred.values[0]])
+            xminute.append(start_min)
+            yvalue.append(y_pred.values[0])
+            
+            if y_pred.values[0] < expt_dur:
+                expt_dur = y_pred.values[0]
+                expt_min = start_min
+            
+            start_min += time_inc
+        expt_val.append([expt_min, expt_dur])
+        
+        plt.bar(xminute, yvalue, width=14)
+    #print(routes)
+    print('')
+    print('Least Congested Time:')
+    #fig = plt.figure(figsize = (8, 5))
+    plt.xlabel('Pickup time')
+    plt.ylabel('Duration (minutes)')
+    arr = np.arange(time_range[0], time_range[len(time_range)-1]+1, time_inc*3)
+    for i in arr:
+        hmstr = str(int(i/60)) + ':' + str(i%60)
+        xlabel.append(hmstr)
+    plt.xticks(arr, xlabel, rotation='vertical')
+    #plt.legend()
+    plt.show()
+        
+    i = 0
+    while i < len(expt_val):
+        if i == 0:
+            print('In morning:')
+        elif i == 1:
+            print('In midday:')
+        elif i == 2:
+            print('In afternoon:')
+        elif i == 3:
+            print('In evening:')
+        else:
+            print('In night:')
+        print('At ', int(expt_val[i][0]/60), ':', str(expt_val[i][0]%60), ', Duration: ',
+              str(expt_val[i][1]), ' minutes')
+        i = i+1    
+# --------------------------- Default range End --------------------------------#
+# ------------------------- Least congested time end -------------------------- #   
+def locationID_name_map_all(zone):
+    mapzone = [[]]
+    for i in range(len(zone)):
+        mr = zone[zone.LocationID == (i+1)]
+        mr = mr.values
+        #print(mr)
+        temp = [mr[0][0], mr[0][1], mr[0][2], mr[0][3]]
+        mapzone.append(temp)
+        
+    return mapzone
+    
+def locationID_name_map(zone, locationID):
+    maprow = zone[zone.LocationID == locationID]
+    
+    return maprow
     
 # -------------------------- Function section end ---------------------------- #
 
@@ -335,11 +480,14 @@ weekdays = ['Saturday','Sunday','Monday','Tuesday','Wednesday','Thursday','Frida
 color = ['b','r','g','grey','m','y','k']
 #b : blue. g : green. r : red. c : cyan. m : magenta. y : yellow. k : black. w : white.
 
-source = 138
-destination = 163#163 #189
+source = 138 #138 #132, 138, 163, 189 87 88
+destination = 162#163 #189 #138 #162 #midpoint  74
 
 num_location = 263 #total locations
 locationID = [x for x in range(1,num_location+1)]
+
+ID_to_zone = locationID_name_map_all(zone)
+#print(ID_to_zone)
 
 i = 0 
 j = 0 # pair of location
@@ -348,24 +496,68 @@ j = 0 # pair of location
 
 #-------------------------- get and show result ----------------------------#
 
-print('Comparative travel time from ', source, ' to ', destination)
-#traffic_pattern(loaded_data, input_data, source, destination)
+print('Comparative travel time from ', ID_to_zone[source][2],',',ID_to_zone[source][1],
+      'to', ID_to_zone[destination][2],',',ID_to_zone[destination][1])
+traffic_pattern(loaded_data, input_data, source, destination)
 
 print()
-print('Least Congested Path from', source, ' to ', destination)
-#cur = datetime.now() # pickup datetime
-cur = datetime(2020, 9, 23, 12, 0, 0) # for specific time
+print('Least Congested Path from', ID_to_zone[source][2],',',ID_to_zone[source][1],
+      'to', ID_to_zone[destination][2],',',ID_to_zone[destination][1])
+cur = datetime.now() # pickup datetime
+cur = datetime(2020, 11, 4, 10, 0, 0) # for specific time
+#start = timeit.default_timer()
 #lcp_BFA_AM(loaded_data, source, destination, num_location, cur)
+#stop = timeit.default_timer()
+#print('Time: ', stop - start)
 # Adjacency list better 
-start = timeit.default_timer()
-lcp_BFA_AL(loaded_data, source, destination, num_location, cur)
-stop = timeit.default_timer()
-print('Time: ', stop - start)
+#start = timeit.default_timer()
+#lcp_BFA_AL(loaded_data, source, destination, num_location, cur)
+#stop = timeit.default_timer()
+#print('Time: ', stop - start)
 
+final_route = []
+final_dur = []
 start = timeit.default_timer()
-lcp_DA_AL(loaded_data, source, destination, num_location, cur)
+parent, route, duration = lcp_DA_AL(loaded_data, source, destination, num_location, cur)
 stop = timeit.default_timer()
 print('Time: ', stop - start) 
+print(route)
+
+#adding middle location
+for i in range(1):
+    midp = 140
+    p = midp
+    final_dur.append(duration[midp-1])
+    i = 0
+    while p > 0:
+        final_route.append(p)
+        p = parent[p]
+        i += 1
+        if i>20:
+            break
+    print(final_route)
+    start = timeit.default_timer()
+    parent, route, duration = lcp_DA_AL(loaded_data, midp, destination, num_location, cur)
+    stop = timeit.default_timer()
+    print('Time: ', stop - start)
+    
+p = destination
+final_dur.append(duration[p-1])
+i = 0
+while p > 0:
+    final_route.append(p)
+    p = parent[p]
+    i += 1
+    if i>20:
+        break
+    
+rlen = len(final_route)
+zone_name = ID_to_zone[final_route[rlen-1]][2]
+for i in range(rlen-1):
+    zone_name += ', ' + ID_to_zone[final_route[rlen-i-2]][2]
+    
+print(final_route)
+print(final_dur)
 
 print()
 #A date is given
@@ -373,8 +565,12 @@ print()
 #Morning 6 - 10, Noon 10 - 14, Afternoon 14 - 18, Evening 18 - 22, night - rest
 #Calculate duration in every interval of 30 minutes
 
-print('Least Congested Time for', source, ' to ', destination)
-time_range = [[6, 0], [12, 0]] #[hour, minute]
-cur = datetime.now() # pickup datetime
+print('Least Congested Time for', ID_to_zone[source][2],',',ID_to_zone[source][1],
+      'to', ID_to_zone[destination][2],',',ID_to_zone[destination][1])
+time_range = [[12, 00], [17, 0]] #[hour, minute]
+#cur = datetime.now() # pickup datetime
 #least_congested_time(loaded_data, source, destination, time_range, cur)
+# default
+print('')
+#lct_default(loaded_data, source, destination, cur)
 
