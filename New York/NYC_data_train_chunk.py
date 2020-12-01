@@ -141,10 +141,10 @@ dp2 = 189
 #create_coefficient_file(max_deg)
 
 # for 1-10     13,113
-sl = 191
-tv_chunk, ts_chunk = prepare_data_chunk(sl, chunksize, num_location, 10)
+sl = 251
+tv_chunk, ts_chunk = prepare_data_chunk(sl, chunksize, num_location, 12)
 i = sl
-while i < 201:
+while i < 263:
     print(i)
     j = 1
     while j < num_location:
